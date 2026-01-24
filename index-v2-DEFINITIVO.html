@@ -1,0 +1,1892 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#667eea">
+    <meta name="description" content="Sistema de gestión compartida de solicitudes, recepciones y entregas de almacén">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Almacén">
+    <link rel="manifest" href="manifest.json">
+    <title>Sistema de Gestión de Almacén v2.0</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+        
+        function loadInsumosRecepcion() {
+            const select = document.getElementById('insumoRecepcion');
+            if (!select) return;
+            select.innerHTML = '<option value="">Selecciona...</option>';
+            currentInsumos.forEach((item, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${item.insumo} - ${item.presentacion} - ${item.tipo}`;
+                select.appendChild(option);
+            });
+        }
+        
+        const recepcionForm = document.getElementById('recepcionForm');
+        if (recepcionForm) {
+            recepcionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!database) {
+                    alert('❌ No hay conexión con Firebase');
+                    return;
+                }
+                const insumoIndex = document.getElementById('insumoRecepcion').value;
+                const insumoData = currentInsumos[insumoIndex];
+                const recepcionId = 'REC-' + Date.now();
+                const recepcion = {
+                    id: recepcionId,
+                    fecha: new Date().toISOString(),
+                    factura: document.getElementById('factura').value.trim(),
+                    proveedor: document.getElementById('proveedor').value.trim(),
+                    insumo: insumoData.insumo,
+                    presentacion: insumoData.presentacion,
+                    tipo: insumoData.tipo,
+                    cantidad: parseInt(document.getElementById('cantidadRecepcion').value),
+                    responsable: document.getElementById('responsableRecepcion').value.trim()
+                };
+                database.ref('recepciones/' + recepcionId).set(recepcion).then(() => {
+                    recepcionForm.reset();
+                    alert('✅ Recepción registrada: ' + recepcionId);
+                }).catch((error) => {
+                    alert('❌ Error: ' + error.message);
+                });
+            });
+        }
+        
+        const exportacionForm = document.getElementById('exportacionForm');
+        if (exportacionForm) {
+            exportacionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!database) {
+                    alert('❌ No hay conexión con Firebase');
+                    return;
+                }
+                const exportacionId = 'EXP-' + Date.now();
+                const exportacion = {
+                    id: exportacionId,
+                    fecha: new Date().toISOString(),
+                    pedido: document.getElementById('pedido').value.trim(),
+                    presentacion: document.getElementById('presentacionExp').value,
+                    tipo: document.getElementById('tipoExp').value,
+                    cliente: document.getElementById('clienteExp').value.trim(),
+                    transporte: document.getElementById('transporte').value,
+                    responsable: document.getElementById('responsableExp').value.trim()
+                };
+                database.ref('exportaciones/' + exportacionId).set(exportacion).then(() => {
+                    exportacionForm.reset();
+                    alert('✅ Exportación registrada: ' + exportacionId);
+                }).catch((error) => {
+                    alert('❌ Error: ' + error.message);
+                });
+            });
+        }
+        
+        database.ref('recepciones').on('value', (snapshot) => {
+            const data = snapshot.val();
+            recepciones = data ? Object.values(data) : [];
+        });
+        
+        database.ref('exportaciones').on('value', (snapshot) => {
+            const data = snapshot.val();
+            exportaciones = data ? Object.values(data) : [];
+        });
+    </script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-400: #9ca3af;
+            --gray-500: #6b7280;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: var(--gray-900);
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        
+        .header p {
+            color: var(--gray-600);
+            font-size: 16px;
+        }
+        
+        .sync-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--success);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        
+        .sync-indicator.offline {
+            background: var(--danger);
+        }
+        
+        .sync-dot {
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .firebase-config {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+        
+        .firebase-config h3 {
+            color: #856404;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        
+        .firebase-config p {
+            color: #856404;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        
+        .firebase-config input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ffc107;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-family: monospace;
+        }
+        
+        .firebase-config button {
+            background: #ffc107;
+            color: #856404;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .user-select {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+        
+        .user-select h2 {
+            color: var(--gray-800);
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        
+        .role-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        
+        .role-btn {
+            padding: 20px;
+            border: 2px solid var(--gray-200);
+            background: white;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+        
+        .role-btn:hover {
+            border-color: var(--primary);
+            background: var(--gray-50);
+            transform: translateY(-2px);
+        }
+        
+        .role-btn.active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+        
+        .role-btn h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .role-btn p {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        
+        .card h2 {
+            color: var(--gray-900);
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            color: var(--gray-700);
+            font-weight: 500;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid var(--gray-200);
+            border-radius: 8px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+        
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #059669;
+        }
+        
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        
+        .btn-secondary {
+            background: var(--gray-200);
+            color: var(--gray-700);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--gray-300);
+        }
+        
+        .btn-full {
+            width: 100%;
+        }
+        
+        .requests-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .request-item {
+            background: var(--gray-50);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            border-left: 4px solid var(--gray-300);
+            transition: all 0.2s;
+        }
+        
+        .request-item:hover {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        .request-item.pending {
+            border-left-color: var(--warning);
+        }
+        
+        .request-item.approved {
+            border-left-color: var(--primary);
+        }
+        
+        .request-item.delivered {
+            border-left-color: var(--success);
+        }
+        
+        .request-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+        }
+        
+        .request-id {
+            font-weight: 700;
+            color: var(--gray-900);
+            font-size: 16px;
+        }
+        
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-approved {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .status-delivered {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .request-details {
+            color: var(--gray-600);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .request-details strong {
+            color: var(--gray-800);
+        }
+        
+        .request-actions {
+            margin-top: 16px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .signature-section {
+            background: var(--gray-100);
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 12px;
+        }
+        
+        .signature-section h4 {
+            font-size: 14px;
+            color: var(--gray-700);
+            margin-bottom: 8px;
+        }
+        
+        .signature-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: var(--gray-600);
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        .stat-card h3 {
+            font-size: 14px;
+            color: var(--gray-600);
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--gray-900);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--gray-500);
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            margin-bottom: 20px;
+        }
+        
+        .modal-header h3 {
+            font-size: 20px;
+            color: var(--gray-900);
+            font-weight: 700;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+        
+        .filters {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 8px 16px;
+            border: 2px solid var(--gray-200);
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .filter-btn:hover {
+            border-color: var(--primary);
+        }
+        
+        .filter-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--gray-500);
+        }
+        
+        .loading-spinner {
+            border: 4px solid var(--gray-200);
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    
+        .client-selector {
+            background: #e0f2fe;
+            border: 2px solid #0ea5e9;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        .client-selector h3 {
+            color: #0c4a6e;
+            font-size: 16px;
+            margin-bottom: 14px;
+            font-weight: 600;
+        }
+        .client-options {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .client-option {
+            padding: 16px;
+            border: 2px solid #bae6fd;
+            background: white;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+        .client-option:hover {
+            border-color: #0ea5e9;
+            transform: translateY(-1px);
+        }
+        .client-option.active {
+            border-color: #0ea5e9;
+            background: #0ea5e9;
+            color: white;
+        }
+        .client-option h4 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                Sistema de Gestión de Almacén 
+                <span class="sync-indicator" id="syncIndicator">
+                    <span class="sync-dot"></span>
+                    <span id="syncText">Sincronizado</span>
+                </span>
+            </h1>
+            <p>Control compartido de solicitudes, recepciones y entregas de insumos</p>
+        </div>
+        
+        <!-- Configuración de Firebase -->
+        <div class="firebase-config" id="firebaseConfig">
+            <h3>⚙️ Configuración de Firebase (Solo primera vez)</h3>
+            <p><strong>Opción 1:</strong> Completa estos campos (los encuentras en Firebase Console):</p>
+            
+            <div class="form-group">
+                <label for="apiKey">API Key *</label>
+                <input type="text" id="apiKey" placeholder="AIzaSy...">
+            </div>
+            
+            <div class="form-group">
+                <label for="authDomain">Auth Domain *</label>
+                <input type="text" id="authDomain" placeholder="tu-proyecto.firebaseapp.com">
+            </div>
+            
+            <div class="form-group">
+                <label for="databaseURL">Database URL *</label>
+                <input type="text" id="databaseURL" placeholder="https://tu-proyecto-default-rtdb.firebaseio.com">
+            </div>
+            
+            <div class="form-group">
+                <label for="projectId">Project ID *</label>
+                <input type="text" id="projectId" placeholder="tu-proyecto">
+            </div>
+            
+            <div class="form-group">
+                <label for="storageBucket">Storage Bucket *</label>
+                <input type="text" id="storageBucket" placeholder="tu-proyecto.appspot.com">
+            </div>
+            
+            <div class="form-group">
+                <label for="messagingSenderId">Messaging Sender ID *</label>
+                <input type="text" id="messagingSenderId" placeholder="123456789012">
+            </div>
+            
+            <div class="form-group">
+                <label for="appId">App ID *</label>
+                <input type="text" id="appId" placeholder="1:123456789012:web:abc123...">
+            </div>
+            
+            <button onclick="saveFirebaseConfigFromFields()" class="btn btn-primary btn-full" style="margin-bottom: 20px;">
+                Guardar y Conectar
+            </button>
+            
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+            
+            <p><strong>Opción 2:</strong> O pega el JSON completo aquí:</p>
+            <textarea id="firebaseConfigInput" rows="8" placeholder='Pega aquí SOLO el objeto JSON (sin "const firebaseConfig = "):
+{
+  "apiKey": "...",
+  "authDomain": "...",
+  "databaseURL": "...",
+  "projectId": "...",
+  "storageBucket": "...",
+  "messagingSenderId": "...",
+  "appId": "..."
+}'></textarea>
+            <button onclick="saveFirebaseConfigFromJSON()" class="btn btn-primary btn-full">Guardar desde JSON</button>
+            
+            <p style="margin-top: 15px; font-size: 12px; color: #666;">
+                💡 <strong>Tip:</strong> Todos los usuarios deben usar la misma configuración para ver los mismos datos.
+            </p>
+        </div>
+        
+        <div id="appContent" style="display: none;">
+            <div class="user-select">
+                <h2>Selecciona tu rol</h2>
+                <div class="role-buttons">
+                    <div class="role-btn" onclick="selectRole('produccion')">
+                        <h3>📦 Producción</h3>
+                        <p>Generar requisiciones</p>
+                    </div>
+                    <div class="role-btn" onclick="selectRole('materialista')">
+                        <h3>📋 Materialista</h3>
+                        <p>Gestionar solicitudes</p>
+                    </div>
+                    <div class="role-btn" onclick="selectRole('almacen')">
+                        <h3>🏭 Almacén</h3>
+                        <p>Ver inventario</p>
+                    </div>
+                    <div class="role-btn" onclick="selectRole('exportaciones')">
+                        <h3>✈️ Exportaciones</h3>
+                        <p>Registrar salidas</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stats">
+                <div class="stat-card">
+                    <h3>Solicitudes Pendientes</h3>
+                    <div class="value" id="statPending">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>En Proceso</h3>
+                    <div class="value" id="statApproved">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Entregadas</h3>
+                    <div class="value" id="statDelivered">0</div>
+                </div>
+            </div>
+            
+            <div class="main-content">
+                <div class="card" id="formCard">
+                    <h2 id="formTitle">Nueva Requisición</h2>
+                    <form id="requestForm">
+                        <div class="client-selector">
+                            <h3>Selecciona el Cliente</h3>
+                            <div class="client-options">
+                                <div class="client-option active" onclick="selectClient('MI_CAMPO', event)">
+                                    <h4>📦 MI CAMPO</h4>
+                                    <p>58 insumos</p>
+                                </div>
+                                <div class="client-option" onclick="selectClient('PELIGROSO', event)">
+                                    <h4>🔥 PELIGROSO</h4>
+                                    <p>43 insumos</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="insumo">Insumo *</label>
+                            <select id="insumo" required>
+                                <option value="">Selecciona un insumo...</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="presentacion">Presentación</label>
+                            <input type="text" id="presentacion" readonly>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="tipo">Tipo</label>
+                            <input type="text" id="tipo" readonly>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="cantidad">Cantidad *</label>
+                            <input type="number" id="cantidad" min="1" required placeholder="Ej: 10000">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="solicitante">Solicitante *</label>
+                            <input type="text" id="solicitante" required placeholder="Nombre completo">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="notas">Notas adicionales</label>
+                            <textarea id="notas" rows="3" placeholder="Información adicional sobre la solicitud..."></textarea>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary btn-full">Generar Requisición</button>
+                    </form>
+                </div>
+                
+                <div class="card" id="recepcionCard" style="display:none">
+                    <h2>📥 Recepción de Proveedores</h2>
+                    <form id="recepcionForm">
+                        <div class="form-group">
+                            <label>Factura *</label>
+                            <input type="text" id="factura" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Proveedor *</label>
+                            <input type="text" id="proveedor" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Insumo *</label>
+                            <select id="insumoRecepcion" required></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Cantidad *</label>
+                            <input type="number" id="cantidadRecepcion" min="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Responsable *</label>
+                            <input type="text" id="responsableRecepcion" required>
+                        </div>
+                        <button type="submit" class="btn btn-success btn-full">Registrar</button>
+                    </form>
+                </div>
+                
+                <div class="card" id="exportacionCard" style="display:none">
+                    <h2>✈️ Exportación</h2>
+                    <form id="exportacionForm">
+                        <div class="form-group">
+                            <label>Pedido *</label>
+                            <input type="text" id="pedido" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Presentación *</label>
+                            <select id="presentacionExp" required>
+                                <option value="">Selecciona...</option>
+                                <option value="375 ml">375 ml</option>
+                                <option value="700 ml">700 ml</option>
+                                <option value="750 ml">750 ml</option>
+                                <option value="1000 ml">1000 ml</option>
+                                <option value="1750 ml">1750 ml</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo *</label>
+                            <select id="tipoExp" required>
+                                <option value="">Selecciona...</option>
+                                <option value="Blanco">Blanco</option>
+                                <option value="Reposado">Reposado</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Cliente *</label>
+                            <input type="text" id="clienteExp" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Transporte *</label>
+                            <select id="transporte" required>
+                                <option value="">Selecciona...</option>
+                                <option value="Terrestre">Terrestre</option>
+                                <option value="Marítimo">Marítimo</option>
+                                <option value="Aéreo">Aéreo</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Responsable *</label>
+                            <input type="text" id="responsableExp" required>
+                        </div>
+                        <button type="submit" class="btn btn-success btn-full">Registrar</button>
+                    </form>
+                </div>
+                
+                
+                <div class="card">
+                    <h2>📑 Historial de Solicitudes</h2>
+                    
+                    <div class="filters">
+                        <button class="filter-btn active" onclick="filterRequests('all')">Todas</button>
+                        <button class="filter-btn" onclick="filterRequests('pending')">Pendientes</button>
+                        <button class="filter-btn" onclick="filterRequests('approved')">Aprobadas</button>
+                        <button class="filter-btn" onclick="filterRequests('delivered')">Entregadas</button>
+                    </div>
+                    
+                    <button class="btn btn-success btn-full" onclick="exportToExcel()" style="margin-bottom: 16px;">
+                        📊 Descargar Reporte Excel
+                    </button>
+                    
+                    <div class="requests-list" id="requestsList">
+                        <div class="loading">
+                            <div class="loading-spinner"></div>
+                            <p>Cargando solicitudes...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modales -->
+    <div class="modal" id="approveModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Aprobar Solicitud</h3>
+            </div>
+            <div class="form-group">
+                <label for="materialistaName">Nombre del Materialista *</label>
+                <input type="text" id="materialistaName" required>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="confirmApprove()">Aprobar</button>
+                <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal" id="deliverModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Confirmar Entrega</h3>
+            </div>
+            <div class="form-group">
+                <label for="receptorName">Nombre del Receptor (Producción) *</label>
+                <input type="text" id="receptorName" required>
+            </div>
+            <div class="form-group">
+                <label for="cantidadEntregada">Cantidad Entregada *</label>
+                <input type="number" id="cantidadEntregada" min="1" required>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="confirmDeliver()">Confirmar Entrega</button>
+                <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    
+    <!-- Firebase SDK - Versión 8 (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js">
+        
+        function loadInsumosRecepcion() {
+            const select = document.getElementById('insumoRecepcion');
+            if (!select) return;
+            select.innerHTML = '<option value="">Selecciona...</option>';
+            currentInsumos.forEach((item, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${item.insumo} - ${item.presentacion} - ${item.tipo}`;
+                select.appendChild(option);
+            });
+        }
+        
+        const recepcionForm = document.getElementById('recepcionForm');
+        if (recepcionForm) {
+            recepcionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!database) {
+                    alert('❌ No hay conexión con Firebase');
+                    return;
+                }
+                const insumoIndex = document.getElementById('insumoRecepcion').value;
+                const insumoData = currentInsumos[insumoIndex];
+                const recepcionId = 'REC-' + Date.now();
+                const recepcion = {
+                    id: recepcionId,
+                    fecha: new Date().toISOString(),
+                    factura: document.getElementById('factura').value.trim(),
+                    proveedor: document.getElementById('proveedor').value.trim(),
+                    insumo: insumoData.insumo,
+                    presentacion: insumoData.presentacion,
+                    tipo: insumoData.tipo,
+                    cantidad: parseInt(document.getElementById('cantidadRecepcion').value),
+                    responsable: document.getElementById('responsableRecepcion').value.trim()
+                };
+                database.ref('recepciones/' + recepcionId).set(recepcion).then(() => {
+                    recepcionForm.reset();
+                    alert('✅ Recepción registrada: ' + recepcionId);
+                }).catch((error) => {
+                    alert('❌ Error: ' + error.message);
+                });
+            });
+        }
+        
+        const exportacionForm = document.getElementById('exportacionForm');
+        if (exportacionForm) {
+            exportacionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!database) {
+                    alert('❌ No hay conexión con Firebase');
+                    return;
+                }
+                const exportacionId = 'EXP-' + Date.now();
+                const exportacion = {
+                    id: exportacionId,
+                    fecha: new Date().toISOString(),
+                    pedido: document.getElementById('pedido').value.trim(),
+                    presentacion: document.getElementById('presentacionExp').value,
+                    tipo: document.getElementById('tipoExp').value,
+                    cliente: document.getElementById('clienteExp').value.trim(),
+                    transporte: document.getElementById('transporte').value,
+                    responsable: document.getElementById('responsableExp').value.trim()
+                };
+                database.ref('exportaciones/' + exportacionId).set(exportacion).then(() => {
+                    exportacionForm.reset();
+                    alert('✅ Exportación registrada: ' + exportacionId);
+                }).catch((error) => {
+                    alert('❌ Error: ' + error.message);
+                });
+            });
+        }
+        
+        database.ref('recepciones').on('value', (snapshot) => {
+            const data = snapshot.val();
+            recepciones = data ? Object.values(data) : [];
+        });
+        
+        database.ref('exportaciones').on('value', (snapshot) => {
+            const data = snapshot.val();
+            exportaciones = data ? Object.values(data) : [];
+        });
+    </script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js">
+        
+        function loadInsumosRecepcion() {
+            const select = document.getElementById('insumoRecepcion');
+            if (!select) return;
+            select.innerHTML = '<option value="">Selecciona...</option>';
+            currentInsumos.forEach((item, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${item.insumo} - ${item.presentacion} - ${item.tipo}`;
+                select.appendChild(option);
+            });
+        }
+        
+        const recepcionForm = document.getElementById('recepcionForm');
+        if (recepcionForm) {
+            recepcionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!database) {
+                    alert('❌ No hay conexión con Firebase');
+                    return;
+                }
+                const insumoIndex = document.getElementById('insumoRecepcion').value;
+                const insumoData = currentInsumos[insumoIndex];
+                const recepcionId = 'REC-' + Date.now();
+                const recepcion = {
+                    id: recepcionId,
+                    fecha: new Date().toISOString(),
+                    factura: document.getElementById('factura').value.trim(),
+                    proveedor: document.getElementById('proveedor').value.trim(),
+                    insumo: insumoData.insumo,
+                    presentacion: insumoData.presentacion,
+                    tipo: insumoData.tipo,
+                    cantidad: parseInt(document.getElementById('cantidadRecepcion').value),
+                    responsable: document.getElementById('responsableRecepcion').value.trim()
+                };
+                database.ref('recepciones/' + recepcionId).set(recepcion).then(() => {
+                    recepcionForm.reset();
+                    alert('✅ Recepción registrada: ' + recepcionId);
+                }).catch((error) => {
+                    alert('❌ Error: ' + error.message);
+                });
+            });
+        }
+        
+        const exportacionForm = document.getElementById('exportacionForm');
+        if (exportacionForm) {
+            exportacionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!database) {
+                    alert('❌ No hay conexión con Firebase');
+                    return;
+                }
+                const exportacionId = 'EXP-' + Date.now();
+                const exportacion = {
+                    id: exportacionId,
+                    fecha: new Date().toISOString(),
+                    pedido: document.getElementById('pedido').value.trim(),
+                    presentacion: document.getElementById('presentacionExp').value,
+                    tipo: document.getElementById('tipoExp').value,
+                    cliente: document.getElementById('clienteExp').value.trim(),
+                    transporte: document.getElementById('transporte').value,
+                    responsable: document.getElementById('responsableExp').value.trim()
+                };
+                database.ref('exportaciones/' + exportacionId).set(exportacion).then(() => {
+                    exportacionForm.reset();
+                    alert('✅ Exportación registrada: ' + exportacionId);
+                }).catch((error) => {
+                    alert('❌ Error: ' + error.message);
+                });
+            });
+        }
+        
+        database.ref('recepciones').on('value', (snapshot) => {
+            const data = snapshot.val();
+            recepciones = data ? Object.values(data) : [];
+        });
+        
+        database.ref('exportaciones').on('value', (snapshot) => {
+            const data = snapshot.val();
+            exportaciones = data ? Object.values(data) : [];
+        });
+    </script>
+
+    <script>
+        // Base de datos de insumos
+        const INSUMOS_MI_CAMPO = [
+    { insumo: "BOTELLA", presentacion: "375ml", tipo: "GENERAL" },
+    { insumo: "BOTELLA", presentacion: "750 ml", tipo: "GENERAL" },
+    { insumo: "BOTELLA", presentacion: "700 ml", tipo: "GENERAL" },
+    { insumo: "BOTELLA", presentacion: "1000 ml", tipo: "GENERAL" },
+    { insumo: "BOTELLA", presentacion: "1750 ml", tipo: "GENERAL" },
+    { insumo: "CAJA", presentacion: "375 ML", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "375 ML", tipo: "REPOSADO" },
+    { insumo: "CAJA", presentacion: "700 ML", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "700 ML", tipo: "REPOSADO" },
+    { insumo: "CAJA", presentacion: "750 ML", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "750 ML", tipo: "REPOSADO" },
+    { insumo: "CAJA", presentacion: "750 ML CANADA", tipo: "REPOSADO" },
+    { insumo: "CAJA", presentacion: "750 ML CANADA", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "1000 ML", tipo: "REPOSADO" },
+    { insumo: "CAJA", presentacion: "1000 ML", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "1.750 ML", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "1.750 ML", tipo: "REPOSADO" },
+    { insumo: "TARIMA CHEP", presentacion: "ESTÁNDAR MADERA", tipo: "GENERAL" },
+    { insumo: "TARIMA", presentacion: "ESTÁNDAR MADERA CON POLIN", tipo: "GENERAL" },
+    { insumo: "TAPON PLASTICO", presentacion: "ESTÁNDAR", tipo: "GENERAL" },
+    { insumo: "CORCHO CASA NOBLE", presentacion: "ESTÁNDAR", tipo: "GENERAL" },
+    { insumo: "CELOSIL", presentacion: "ESTÁNDAR", tipo: "GENERAL" },
+    { insumo: "ESQUINEROS", presentacion: "KRAFT 2X2", tipo: "GENERAL" },
+    { insumo: "ROLLOS PLAYO CHICO", presentacion: "18\"", tipo: "GENERAL" },
+    { insumo: "ROLLOS PLAYO GRANDE", presentacion: "20\"", tipo: "GENERAL" },
+    { insumo: "ROLLOS CINTA", presentacion: "48 X 150", tipo: "GENERAL" },
+    { insumo: "ROLLOS FLEJE", presentacion: "1/2 negro", tipo: "GENERAL" },
+    { insumo: "GRAPAS PZ", presentacion: "50ml", tipo: "GENERAL" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "375 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "700 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "750 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "750 ML CANADA", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "1000 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "1750 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "375 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "700 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "750 ML CANADA", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "750 ML USA", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "1000 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "1750 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "375 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "700 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "750 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "750 ML CANADA", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "1000 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "1750 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "375 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "700 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "750 ML CANADA", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "750 ML USA", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "1000 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "1750 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "375 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "750/700/1000 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "1750 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "375 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "750/700/1000 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "1750 ML", tipo: "REPOSADO" }
+];
+
+const INSUMOS_PELIGROSO = [
+    { insumo: "BOTELLA", presentacion: "50 ml", tipo: "GENERAL" },
+    { insumo: "BOTELLA", presentacion: "375ml", tipo: "GENERAL" },
+    { insumo: "BOTELLA", presentacion: "750 ml", tipo: "GENERAL" },
+    { insumo: "BOTELLA", presentacion: "1000 ml", tipo: "GENERAL" },
+    { insumo: "CAJA", presentacion: "50 ML", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "50 ML", tipo: "REPOSADO" },
+    { insumo: "CAJA", presentacion: "375 ML", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "375 ML", tipo: "REPOSADO" },
+    { insumo: "CAJA", presentacion: "750 ML", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "750 ML", tipo: "REPOSADO" },
+    { insumo: "CAJA", presentacion: "1000 ML", tipo: "BLANCO" },
+    { insumo: "CAJA", presentacion: "1000 ML", tipo: "REPOSADO" },
+    { insumo: "TARIMA", presentacion: "ESTÁNDAR MADERA CON POLIN", tipo: "GENERAL" },
+    { insumo: "TAPON PLASTICO", presentacion: "ESTÁNDAR", tipo: "GENERAL" },
+    { insumo: "CELOSIL", presentacion: "ESTÁNDAR", tipo: "GENERAL" },
+    { insumo: "ESQUINEROS", presentacion: "KRAFT 2X2", tipo: "GENERAL" },
+    { insumo: "ROLLOS PLAYO CHICO", presentacion: "18\"", tipo: "GENERAL" },
+    { insumo: "ROLLOS PLAYO GRANDE", presentacion: "20\"", tipo: "GENERAL" },
+    { insumo: "ROLLOS CINTA", presentacion: "48 X 150", tipo: "GENERAL" },
+    { insumo: "ROLLOS FLEJE", presentacion: "1/2 negro", tipo: "GENERAL" },
+    { insumo: "GRAPAS PZ", presentacion: "50ml", tipo: "GENERAL" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "50 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "375 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "750 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "1000 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "50 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "375 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "750 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA FRENTE", presentacion: "1000 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "50 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "375 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "750 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "1000 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "50 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "375 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "750 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CONTRA", presentacion: "1000 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "50 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "375 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "750/1000 ML", tipo: "BLANCO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "50 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "375 ML", tipo: "REPOSADO" },
+    { insumo: "ETIQUETA CUELLO", presentacion: "750/1000 ML", tipo: "REPOSADO" }
+];
+
+let currentClient = 'MI_CAMPO';
+let currentInsumos = INSUMOS_MI_CAMPO;
+
+const INSUMOS = INSUMOS_MI_CAMPO; // Por compatibilidad
+
+        // Variables globales
+        let database = null;
+        let requests = [];
+        let recepciones = [];
+        let exportaciones = [];
+        let currentRole = null;
+        let currentFilter = 'all';
+        let currentRequestId = null;
+
+        // Verificar si ya existe configuración de Firebase
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Página cargada');
+            console.log('Firebase disponible:', typeof firebase !== 'undefined');
+            
+            const savedConfig = localStorage.getItem('firebaseConfig');
+            if (savedConfig) {
+                try {
+                    const config = JSON.parse(savedConfig);
+                    // Esperar un poco para asegurar que Firebase se cargue
+                    setTimeout(() => {
+                        initializeFirebase(config);
+                    }, 500);
+                } catch (e) {
+                    console.error('Error al cargar configuración:', e);
+                }
+            }
+            loadInsumos();
+        });
+
+        // Guardar configuración de Firebase desde campos
+        function saveFirebaseConfigFromFields() {
+            const config = {
+                apiKey: document.getElementById('apiKey').value.trim(),
+                authDomain: document.getElementById('authDomain').value.trim(),
+                databaseURL: document.getElementById('databaseURL').value.trim(),
+                projectId: document.getElementById('projectId').value.trim(),
+                storageBucket: document.getElementById('storageBucket').value.trim(),
+                messagingSenderId: document.getElementById('messagingSenderId').value.trim(),
+                appId: document.getElementById('appId').value.trim()
+            };
+            
+            // Validar que todos los campos estén llenos
+            const missingFields = [];
+            if (!config.apiKey) missingFields.push('API Key');
+            if (!config.authDomain) missingFields.push('Auth Domain');
+            if (!config.databaseURL) missingFields.push('Database URL');
+            if (!config.projectId) missingFields.push('Project ID');
+            if (!config.storageBucket) missingFields.push('Storage Bucket');
+            if (!config.messagingSenderId) missingFields.push('Messaging Sender ID');
+            if (!config.appId) missingFields.push('App ID');
+            
+            if (missingFields.length > 0) {
+                alert('❌ Faltan campos:\n' + missingFields.join('\n'));
+                return;
+            }
+            
+            localStorage.setItem('firebaseConfig', JSON.stringify(config));
+            initializeFirebase(config);
+        }
+
+        // Guardar configuración de Firebase desde JSON
+        function saveFirebaseConfigFromJSON() {
+            let configText = document.getElementById('firebaseConfigInput').value.trim();
+            
+            // Limpiar el texto
+            configText = configText.replace(/const\s+firebaseConfig\s*=\s*/g, '');
+            configText = configText.replace(/;?\s*$/g, '');
+            
+            try {
+                const config = JSON.parse(configText);
+                
+                // Validar que tenga los campos necesarios
+                if (!config.apiKey || !config.databaseURL || !config.projectId) {
+                    throw new Error('Faltan campos requeridos');
+                }
+                
+                localStorage.setItem('firebaseConfig', JSON.stringify(config));
+                initializeFirebase(config);
+            } catch (e) {
+                alert('❌ Error: La configuración no es válida.\n\nAsegúrate de:\n1. Copiar SOLO el objeto { } sin "const firebaseConfig ="\n2. No incluir el punto y coma final\n3. Que todas las comillas sean dobles " "\n\nError técnico: ' + e.message);
+            }
+        }
+
+        // Inicializar Firebase
+        function initializeFirebase(config) {
+            try {
+                // Verificar que Firebase esté disponible
+                if (typeof firebase === 'undefined') {
+                    throw new Error('Firebase no se ha cargado correctamente. Recarga la página.');
+                }
+                
+                firebase.initializeApp(config);
+                database = firebase.database();
+                
+                document.getElementById('firebaseConfig').style.display = 'none';
+                document.getElementById('appContent').style.display = 'block';
+                
+                updateSyncIndicator(true);
+                loadRequestsFromFirebase();
+                
+                // Escuchar cambios en tiempo real
+                database.ref('requests').on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    requests = data ? Object.values(data) : [];
+                    updateStats();
+                    renderRequests();
+                });
+                
+                alert('✅ Configuración guardada y conectada correctamente');
+                
+            } catch (e) {
+                console.error('Error al inicializar Firebase:', e);
+                updateSyncIndicator(false);
+                alert('❌ Error: ' + e.message + '\n\nRecarga la página e intenta de nuevo.');
+            }
+        }
+
+        // Cargar solicitudes desde Firebase
+        function loadRequestsFromFirebase() {
+            if (!database) return;
+            
+            database.ref('requests').once('value')
+                .then((snapshot) => {
+                    const data = snapshot.val();
+                    requests = data ? Object.values(data) : [];
+                    updateStats();
+                    renderRequests();
+                })
+                .catch((error) => {
+                    console.error('Error al cargar datos:', error);
+                    updateSyncIndicator(false);
+                });
+        }
+
+        // Actualizar indicador de sincronización
+        function updateSyncIndicator(online) {
+            const indicator = document.getElementById('syncIndicator');
+            const text = document.getElementById('syncText');
+            
+            if (online) {
+                indicator.classList.remove('offline');
+                text.textContent = 'Sincronizado';
+            } else {
+                indicator.classList.add('offline');
+                text.textContent = 'Sin conexión';
+            }
+        }
+
+        // Cargar insumos
+        function loadInsumos() {
+            const select = document.getElementById('insumo');
+            currentInsumos.forEach((item, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${item.insumo} - ${item.presentacion} - ${item.tipo}`;
+                select.appendChild(option);
+            });
+        }
+
+        // Actualizar campos de insumo
+        document.getElementById('insumo').addEventListener('change', function(e) {
+            const index = e.target.value;
+            if (index !== '') {
+                const item = INSUMOS[index];
+                document.getElementById('presentacion').value = item.presentacion;
+                document.getElementById('tipo').value = item.tipo;
+            } else {
+                document.getElementById('presentacion').value = '';
+                document.getElementById('tipo').value = '';
+            }
+        });
+
+        // Seleccionar rol
+        function selectRole(role) {
+            currentRole = role;
+            document.querySelectorAll('.role-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.closest('.role-btn').classList.add('active');
+            
+            const formCard = document.getElementById('formCard');
+            const formTitle = document.getElementById('formTitle');
+            
+            if (role === 'produccion') {
+                document.getElementById('formCard').style.display = 'block';
+                document.getElementById('formTitle').textContent = '📦 Nueva Requisición';
+            } else if (role === 'almacen') {
+                const recCard = document.getElementById('recepcionCard');
+                if (recCard) {
+                    recCard.style.display = 'block';
+                    loadInsumosRecepcion();
+                }
+            } else if (role === 'exportaciones') {
+                const expCard = document.getElementById('exportacionCard');
+                if (expCard) expCard.style.display = 'block';
+            } else {
+                formCard.style.display = 'none';
+            }
+            
+            renderRequests();
+        }
+
+        function selectClient(client, event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            
+            currentClient = client;
+            currentInsumos = client === 'MI_CAMPO' ? INSUMOS_MI_CAMPO : INSUMOS_PELIGROSO;
+            
+            // Actualizar UI
+            document.querySelectorAll('.client-option').forEach(opt => opt.classList.remove('active'));
+            if (event && event.target) {
+                const option = event.target.closest('.client-option');
+                if (option) option.classList.add('active');
+            }
+            
+            // Recargar insumos
+            loadInsumos();
+        }
+
+
+        // Enviar formulario
+        document.getElementById('requestForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            if (!database) {
+                alert('❌ No hay conexión con Firebase');
+                return;
+            }
+            
+            const insumoIndex = document.getElementById('insumo').value;
+            const insumoData = INSUMOS[insumoIndex];
+            
+            const requestId = 'REQ-' + Date.now();
+            const request = {
+                id: requestId,
+                fecha: new Date().toISOString(),
+                cliente: currentClient,
+                insumo: insumoData.insumo,
+                presentacion: insumoData.presentacion,
+                tipo: insumoData.tipo,
+                cantidad: parseInt(document.getElementById('cantidad').value),
+                solicitante: document.getElementById('solicitante').value,
+                notas: document.getElementById('notas').value,
+                status: 'pending',
+                parcialidades: [],
+                cantidadEntregadaTotal: 0,
+                firmas: {
+                    produccion: document.getElementById('solicitante').value,
+                    materialista: null,
+                    receptor: null
+                },
+                cantidadEntregada: null,
+                fechaAprobacion: null,
+                fechaEntrega: null
+            };
+            
+            // Guardar en Firebase
+            database.ref('requests/' + requestId).set(request)
+                .then(() => {
+                    e.target.reset();
+                    document.getElementById('presentacion').value = '';
+                    document.getElementById('tipo').value = '';
+                    alert('✅ Requisición generada correctamente: ' + requestId);
+                })
+                .catch((error) => {
+                    console.error('Error al guardar:', error);
+                    alert('❌ Error al guardar la solicitud');
+                });
+        });
+
+        // Actualizar estadísticas
+        function updateStats() {
+            const pending = requests.filter(r => r.status === 'pending').length;
+            const approved = requests.filter(r => r.status === 'approved').length;
+            const delivered = requests.filter(r => r.status === 'delivered').length;
+            
+            document.getElementById('statPending').textContent = pending;
+            document.getElementById('statApproved').textContent = approved;
+            document.getElementById('statDelivered').textContent = delivered;
+        }
+
+        // Renderizar solicitudes
+        function renderRequests() {
+            const container = document.getElementById('requestsList');
+            let filteredRequests = requests;
+            
+            if (currentFilter !== 'all') {
+                filteredRequests = requests.filter(r => r.status === currentFilter);
+            }
+            
+            if (filteredRequests.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p style="font-size: 48px; margin-bottom: 10px;">📋</p>
+                        <p>No hay solicitudes para mostrar</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = filteredRequests.sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).map(req => `
+                <div class="request-item ${req.status}">
+                    <div class="request-header">
+                        <span class="request-id">${req.id}</span>
+                        <span class="status-badge status-${req.status}">
+                            ${req.status === 'pending' ? 'Pendiente' : req.status === 'approved' ? 'Aprobada' : 'Entregada'}
+                        </span>
+                    </div>
+                    <div class="request-details">
+                        <p><strong>Cliente:</strong> ${req.cliente || \'MI CAMPO\'}</p>
+                        <p><strong>Fecha:</strong> ${new Date(req.fecha).toLocaleString('es-MX')}</p>
+                        <p><strong>Insumo:</strong> ${req.insumo} - ${req.presentacion} - ${req.tipo}</p>
+                        <p><strong>Cantidad solicitada:</strong> ${req.cantidad.toLocaleString()}</p>
+                        ${req.cantidadEntregada ? `<p><strong>Cantidad entregada:</strong> ${req.cantidadEntregada.toLocaleString()}</p>` : ''}
+                        <p><strong>Solicitante:</strong> ${req.solicitante}</p>
+                        ${req.notas ? `<p><strong>Notas:</strong> ${req.notas}</p>` : ''}
+                    </div>
+                    
+                    ${req.firmas.materialista || req.firmas.receptor ? `
+                        <div class="signature-section">
+                            <h4>Firmas Digitales:</h4>
+                            <div class="signature-item">
+                                ✓ Producción: ${req.firmas.produccion}
+                            </div>
+                            ${req.firmas.materialista ? `
+                                <div class="signature-item">
+                                    ✓ Materialista: ${req.firmas.materialista} (${new Date(req.fechaAprobacion).toLocaleString('es-MX')})
+                                </div>
+                            ` : ''}
+                            ${req.firmas.receptor ? `
+                                <div class="signature-item">
+                                    ✓ Receptor: ${req.firmas.receptor} (${new Date(req.fechaEntrega).toLocaleString('es-MX')})
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                    
+                    <div class="request-actions">
+                        ${currentRole === 'materialista' && req.status === 'pending' ? `
+                            <button class="btn btn-success" onclick="approveRequest('${req.id}')">Aprobar Solicitud</button>
+                        ` : ''}
+                        ${currentRole === 'materialista' && req.status === 'approved' ? `
+                            <button class="btn btn-primary" onclick="deliverRequest('${req.id}')">Confirmar Entrega</button>
+                        ` : ''}
+                        <button class="btn btn-danger" onclick="deleteRequest('${req.id}')">Eliminar</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Filtrar solicitudes
+        function filterRequests(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            renderRequests();
+        }
+
+        // Aprobar solicitud
+        function approveRequest(id) {
+            currentRequestId = id;
+            document.getElementById('approveModal').classList.add('active');
+        }
+
+        function confirmApprove() {
+            const materialistaName = document.getElementById('materialistaName').value.trim();
+            if (!materialistaName) {
+                alert('Por favor ingresa tu nombre');
+                return;
+            }
+            
+            if (!database) {
+                alert('❌ No hay conexión con Firebase');
+                return;
+            }
+            
+            database.ref('requests/' + currentRequestId).update({
+                status: 'approved',
+                'firmas/materialista': materialistaName,
+                fechaAprobacion: new Date().toISOString()
+            }).then(() => {
+                closeModal();
+                alert('✅ Solicitud aprobada correctamente');
+            }).catch((error) => {
+                console.error('Error:', error);
+                alert('❌ Error al aprobar la solicitud');
+            });
+        }
+
+        // Entregar solicitud
+        function deliverRequest(id) {
+            currentRequestId = id;
+            const request = requests.find(r => r.id === currentRequestId);
+            document.getElementById('cantidadEntregada').value = request.cantidad;
+            document.getElementById('deliverModal').classList.add('active');
+        }
+
+        function confirmDeliver() {
+            const receptorName = document.getElementById('receptorName').value.trim();
+            const cantidadEntregada = parseInt(document.getElementById('cantidadEntregada').value);
+            
+            if (!receptorName) {
+                alert('Por favor ingresa el nombre del receptor');
+                return;
+            }
+            
+            if (!cantidadEntregada || cantidadEntregada <= 0) {
+                alert('Por favor ingresa una cantidad válida');
+                return;
+            }
+            
+            if (!database) {
+                alert('❌ No hay conexión con Firebase');
+                return;
+            }
+            
+            database.ref('requests/' + currentRequestId).update({
+                status: 'delivered',
+                'firmas/receptor': receptorName,
+                cantidadEntregada: cantidadEntregada,
+                fechaEntrega: new Date().toISOString()
+            }).then(() => {
+                closeModal();
+                alert('✅ Entrega confirmada correctamente');
+            }).catch((error) => {
+                console.error('Error:', error);
+                alert('❌ Error al confirmar la entrega');
+            });
+        }
+
+        // Eliminar solicitud
+        function deleteRequest(id) {
+            const request = requests.find(r => r.id === id);
+            if (!request) return;
+            
+            const confirmMsg = `¿Estás seguro de eliminar la solicitud ${id}?\n\nInsumo: ${request.insumo} - ${request.presentacion}\nCantidad: ${request.cantidad.toLocaleString()}\nEstado: ${request.status === 'pending' ? 'Pendiente' : request.status === 'approved' ? 'Aprobada' : 'Entregada'}\n\nEsta acción no se puede deshacer.`;
+            
+            if (confirm(confirmMsg)) {
+                if (!database) {
+                    alert('❌ No hay conexión con Firebase');
+                    return;
+                }
+                
+                database.ref('requests/' + id).remove()
+                    .then(() => {
+                        alert('✅ Solicitud eliminada correctamente');
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                        alert('❌ Error al eliminar la solicitud');
+                    });
+            }
+        }
+
+        // Cerrar modal
+        function closeModal() {
+            document.querySelectorAll('.modal').forEach(modal => modal.classList.remove('active'));
+            document.getElementById('materialistaName').value = '';
+            document.getElementById('receptorName').value = '';
+            currentRequestId = null;
+        }
+
+        // Exportar a Excel
+        function exportToExcel() {
+            const wb = XLSX.utils.book_new();
+            
+            if (requests.length > 0) {
+                const reqData = requests.map(req => ({
+                    'ID': req.id,
+                    'Cliente': req.cliente || 'MI CAMPO',
+                    'Fecha': new Date(req.fecha).toLocaleString('es-MX'),
+                    'Insumo': req.insumo,
+                    'Presentación': req.presentacion,
+                    'Tipo': req.tipo,
+                    'Cantidad Solicitada': req.cantidad,
+                    'Cantidad Entregada': req.cantidadEntregadaTotal || 0,
+                    'Faltante': req.cantidadEntregadaTotal ? (req.cantidad - req.cantidadEntregadaTotal) : req.cantidad,
+                    'Estado': req.status === 'pending' ? 'Pendiente' : req.status === 'approved' ? 'Aprobada' : req.status === 'partial' ? 'Parcial' : 'Entregada',
+                    'Parcialidades': req.parcialidades ? req.parcialidades.length : 0,
+                    'Solicitante': req.firmas.produccion,
+                    'Materialista': req.firmas.materialista || 'Pendiente',
+                    'Receptor': req.firmas.receptor || 'Pendiente',
+                    'Fecha Entrega': req.fechaEntrega ? new Date(req.fechaEntrega).toLocaleString('es-MX') : 'N/A'
+                }));
+                const ws1 = XLSX.utils.json_to_sheet(reqData);
+                ws1['!cols'] = [{wch:15},{wch:15},{wch:20},{wch:20},{wch:15},{wch:15},{wch:18},{wch:18},{wch:12},{wch:12},{wch:12},{wch:20},{wch:20},{wch:20},{wch:20}];
+                XLSX.utils.book_append_sheet(wb, ws1, 'Requisiciones');
+            }
+            
+            if (recepciones && recepciones.length > 0) {
+                const recData = recepciones.map(rec => ({
+                    'ID': rec.id,
+                    'Fecha': new Date(rec.fecha).toLocaleString('es-MX'),
+                    'Factura': rec.factura,
+                    'Proveedor': rec.proveedor,
+                    'Insumo': rec.insumo,
+                    'Presentación': rec.presentacion,
+                    'Tipo': rec.tipo,
+                    'Cantidad': rec.cantidad,
+                    'Responsable': rec.responsable
+                }));
+                const ws2 = XLSX.utils.json_to_sheet(recData);
+                ws2['!cols'] = [{wch:15},{wch:20},{wch:15},{wch:25},{wch:20},{wch:20},{wch:15},{wch:12},{wch:25}];
+                XLSX.utils.book_append_sheet(wb, ws2, 'Recepciones');
+            }
+            
+            if (exportaciones && exportaciones.length > 0) {
+                const expData = exportaciones.map(exp => ({
+                    'ID': exp.id,
+                    'Fecha': new Date(exp.fecha).toLocaleString('es-MX'),
+                    'Pedido': exp.pedido,
+                    'Presentación': exp.presentacion,
+                    'Tipo': exp.tipo,
+                    'Cliente': exp.cliente,
+                    'Transporte': exp.transporte,
+                    'Responsable': exp.responsable
+                }));
+                const ws3 = XLSX.utils.json_to_sheet(expData);
+                ws3['!cols'] = [{wch:15},{wch:20},{wch:15},{wch:15},{wch:12},{wch:25},{wch:15},{wch:25}];
+                XLSX.utils.book_append_sheet(wb, ws3, 'Exportaciones');
+            }
+            
+            if (requests.length === 0 && (!recepciones || recepciones.length === 0) && (!exportaciones || exportaciones.length === 0)) {
+                alert('No hay datos para exportar');
+                return;
+            }
+            
+            const filename = `Reporte_Almacen_${new Date().toISOString().split('T')[0]}.xlsx`;
+            XLSX.writeFile(wb, filename);
+        }
+
+        // Cerrar modal al hacer clic fuera
+        window.addEventListener('click', function(e) {
+            if (e.target.classList.contains('modal')) {
+                closeModal();
+            }
+        });
+
+        // Registrar Service Worker para PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(registration => console.log('SW registrado'))
+                    .catch(err => console.log('SW error:', err));
+            });
+        }
+    
+        
+        function loadInsumosRecepcion() {
+            const select = document.getElementById('insumoRecepcion');
+            if (!select) return;
+            select.innerHTML = '<option value="">Selecciona...</option>';
+            currentInsumos.forEach((item, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${item.insumo} - ${item.presentacion} - ${item.tipo}`;
+                select.appendChild(option);
+            });
+        }
+        
+        const recepcionForm = document.getElementById('recepcionForm');
+        if (recepcionForm) {
+            recepcionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!database) {
+                    alert('❌ No hay conexión con Firebase');
+                    return;
+                }
+                const insumoIndex = document.getElementById('insumoRecepcion').value;
+                const insumoData = currentInsumos[insumoIndex];
+                const recepcionId = 'REC-' + Date.now();
+                const recepcion = {
+                    id: recepcionId,
+                    fecha: new Date().toISOString(),
+                    factura: document.getElementById('factura').value.trim(),
+                    proveedor: document.getElementById('proveedor').value.trim(),
+                    insumo: insumoData.insumo,
+                    presentacion: insumoData.presentacion,
+                    tipo: insumoData.tipo,
+                    cantidad: parseInt(document.getElementById('cantidadRecepcion').value),
+                    responsable: document.getElementById('responsableRecepcion').value.trim()
+                };
+                database.ref('recepciones/' + recepcionId).set(recepcion).then(() => {
+                    recepcionForm.reset();
+                    alert('✅ Recepción registrada: ' + recepcionId);
+                }).catch((error) => {
+                    alert('❌ Error: ' + error.message);
+                });
+            });
+        }
+        
+        const exportacionForm = document.getElementById('exportacionForm');
+        if (exportacionForm) {
+            exportacionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!database) {
+                    alert('❌ No hay conexión con Firebase');
+                    return;
+                }
+                const exportacionId = 'EXP-' + Date.now();
+                const exportacion = {
+                    id: exportacionId,
+                    fecha: new Date().toISOString(),
+                    pedido: document.getElementById('pedido').value.trim(),
+                    presentacion: document.getElementById('presentacionExp').value,
+                    tipo: document.getElementById('tipoExp').value,
+                    cliente: document.getElementById('clienteExp').value.trim(),
+                    transporte: document.getElementById('transporte').value,
+                    responsable: document.getElementById('responsableExp').value.trim()
+                };
+                database.ref('exportaciones/' + exportacionId).set(exportacion).then(() => {
+                    exportacionForm.reset();
+                    alert('✅ Exportación registrada: ' + exportacionId);
+                }).catch((error) => {
+                    alert('❌ Error: ' + error.message);
+                });
+            });
+        }
+        
+        database.ref('recepciones').on('value', (snapshot) => {
+            const data = snapshot.val();
+            recepciones = data ? Object.values(data) : [];
+        });
+        
+        database.ref('exportaciones').on('value', (snapshot) => {
+            const data = snapshot.val();
+            exportaciones = data ? Object.values(data) : [];
+        });
+    </script>
+</body>
+</html>
