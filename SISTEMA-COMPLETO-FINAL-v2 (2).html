@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión de Almacén - Completo</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body{font-family:Arial;padding:20px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh}
+        .container{max-width:1400px;margin:0 auto}
+        h1{color:white;margin-bottom:10px}
+        .sync-badge{display:inline-block;background:#10b981;color:white;padding:5px 12px;border-radius:20px;font-size:12px;margin-left:10px}
+        .btn{padding:12px 24px;margin:5px;cursor:pointer;border:none;border-radius:8px;font-size:14px;font-weight:600}
+        .card{background:white;padding:20px;border-radius:12px;margin:20px 0;box-shadow:0 4px 6px rgba(0,0,0,0.1);display:none}
+        .card.active{display:block}
+        .form-group{margin:15px 0}
+        label{display:block;margin-bottom:5px;font-weight:600;color:#333}
+        input,select,textarea{width:100%;padding:10px;border:2px solid #ddd;border-radius:6px;box-sizing:border-box;font-family:Arial}
+        button[type="submit"]{background:#10b981;color:white;width:100%;padding:12px;border:none;border-radius:6px;cursor:pointer;font-size:16px;font-weight:600}
+        .btn-excel{background:#059669;color:white}
+        .request-item{background:#f9f9f9;padding:20px;margin:10px 0;border-radius:8px;border-left:4px solid #e0e0e0}
+        .request-item h3{margin:0 0 10px 0;color:#333}
+        .request-item p{margin:5px 0;color:#666}
+        .btn-approve{background:#3b82f6;color:white}
+        .btn-deliver{background:#8b5cf6;color:white}
+        .btn-parcialidad{background:#ec4899;color:white}
+        .btn-eliminar{background:#ef4444;color:white;width:100%;margin-top:10px}
+        .status-pending{color:#f59e0b;font-weight:bold}
+        .status-approved{color:#3b82f6;font-weight:bold}
+        .status-partial{color:#8b5cf6;font-weight:bold}
+        .status-delivered{color:#10b981;font-weight:bold}
+        .parcialidad-item{background:#e0f2fe;padding:10px;margin:5px 0;border-radius:4px;font-size:14px;border-left:3px solid #0ea5e9}
+        .faltante{color:#ef4444;font-weight:bold;font-size:16px}
+        .client-selector{background:#e0f2fe;border:2px solid #0ea5e9;padding:15px;border-radius:8px;margin-bottom:15px}
+        .client-options{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+        .client-option{padding:12px;border:2px solid #bae6fd;background:white;border-radius:8px;cursor:pointer;text-align:center}
+        .client-option:hover{border-color:#0ea5e9}
+        .client-option.active{border-color:#0ea5e9;background:#0ea5e9;color:white}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sistema de Gestión de Almacén <span class="sync-badge">🟢 Conectado</span></h1>
+        
+        <div style="background:white;padding:20px;border-radius:12px;margin-bottom:20px">
+            <button class="btn" onclick="mostrar('produccion')" style="background:#3b82f6;color:white">📦 Producción</button>
+            <button class="btn" onclick="mostrar('materialista')" style="background:#ec4899;color:white">📋 Materialista</button>
+            <button class="btn" onclick="mostrar('almacen')" style="background:#8b5cf6;color:white">🏢 Almacén</button>
+            <button class="btn" onclick="mostrar('exportaciones')" style="background:#f59e0b;color:white">✈️ Exportaciones</button>
+        </div>
+
+        <div id="produccionCard" class="card">
+            <h2>📦 Nueva Requisición</h2>
+            <form onsubmit="event.preventDefault();crearRequisicion()">
+                <div class="client-selector">
+                    <h3 style="margin:0 0 10px 0">Selecciona el Cliente</h3>
+                    <div class="client-options">
+                        <div class="client-option active" onclick="selectClient('MI_CAMPO',event)">
+                            <h4 style="margin:0">📦 MI CAMPO</h4>
+                            <p style="margin:5px 0 0 0;font-size:12px">58 insumos</p>
+                        </div>
+                        <div class="client-option" onclick="selectClient('PELIGROSO',event)">
+                            <h4 style="margin:0">🔥 PELIGROSO</h4>
+                            <p style="margin:5px 0 0 0;font-size:12px">43 insumos</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group"><label>Insumo *</label><select id="insumo" required></select></div>
+                <div class="form-group"><label>Cantidad *</label><input type="number" id="cantidad" min="1" required></div>
+                <div class="form-group"><label>Solicitante *</label><input type="text" id="solicitante" required></div>
+                <div class="form-group"><label>Notas</label><textarea id="notas" rows="3"></textarea></div>
+                <button type="submit">Crear Requisición</button>
+            </form>
+        </div>
+
+        <div id="materialistaCard" class="card">
+            <h2>📋 Gestión de Solicitudes</h2>
+            <button class="btn btn-excel" onclick="descargarExcel()">📊 Descargar Excel</button>
+            <div style="margin:20px 0">
+                <button class="btn" onclick="filtrarSolicitudes('all')" style="background:#6b7280;color:white">Todas</button>
+                <button class="btn" onclick="filtrarSolicitudes('pending')" style="background:#f59e0b;color:white">Pendientes</button>
+                <button class="btn" onclick="filtrarSolicitudes('approved')" style="background:#3b82f6;color:white">Aprobadas</button>
+                <button class="btn" onclick="filtrarSolicitudes('partial')" style="background:#8b5cf6;color:white">Parciales</button>
+                <button class="btn" onclick="filtrarSolicitudes('delivered')" style="background:#10b981;color:white">Entregadas</button>
+            </div>
+            <div id="listaSolicitudes"></div>
+        </div>
+
+        <div id="almacenCard" class="card">
+            <h2>📥 Recepción de Proveedores</h2>
+            <form onsubmit="event.preventDefault();registrarRecepcion()">
+                <div class="form-group"><label>Factura *</label><input type="text" id="factura" required></div>
+                <div class="form-group"><label>Proveedor *</label><input type="text" id="proveedor" required></div>
+                <div class="form-group"><label>Insumo *</label><input type="text" id="insumoRecep" required></div>
+                <div class="form-group"><label>Cantidad *</label><input type="number" id="cantidadRecep" min="1" required></div>
+                <div class="form-group"><label>Responsable *</label><input type="text" id="responsableRecep" required></div>
+                <button type="submit">Registrar Recepción</button>
+            </form>
+        </div>
+
+        <div id="exportacionesCard" class="card">
+            <h2>✈️ Registrar Exportación</h2>
+            <form onsubmit="event.preventDefault();registrarExportacion()">
+                <div class="form-group"><label>Número de Pedido *</label><input type="text" id="pedido" required></div>
+                <div class="form-group"><label>Presentación *</label><select id="presentacion" required><option value="">Selecciona...</option><option>375 ml</option><option>700 ml</option><option>750 ml</option><option>1000 ml</option><option>1750 ml</option></select></div>
+                <div class="form-group"><label>Tipo *</label><select id="tipo" required><option value="">Selecciona...</option><option>Blanco</option><option>Reposado</option></select></div>
+                <div class="form-group"><label>Cliente *</label><input type="text" id="clienteExp" required></div>
+                <div class="form-group"><label>Transporte *</label><select id="transporte" required><option value="">Selecciona...</option><option>Terrestre</option><option>Marítimo</option><option>Aéreo</option></select></div>
+                <div class="form-group"><label>Responsable *</label><input type="text" id="responsableExp" required></div>
+                <button type="submit">Registrar Exportación</button>
+            </form>
+        </div>
+    </div>
+    <script>
+const INSUMOS_MI_CAMPO=[{insumo:"BOTELLA",presentacion:"375ml",tipo:"GENERAL"},{insumo:"BOTELLA",presentacion:"750 ml",tipo:"GENERAL"},{insumo:"BOTELLA",presentacion:"700 ml",tipo:"GENERAL"},{insumo:"BOTELLA",presentacion:"1000 ml",tipo:"GENERAL"},{insumo:"BOTELLA",presentacion:"1750 ml",tipo:"GENERAL"},{insumo:"CAJA",presentacion:"375 ML",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"375 ML",tipo:"REPOSADO"},{insumo:"CAJA",presentacion:"700 ML",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"700 ML",tipo:"REPOSADO"},{insumo:"CAJA",presentacion:"750 ML",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"750 ML",tipo:"REPOSADO"},{insumo:"CAJA",presentacion:"750 ML CANADA",tipo:"REPOSADO"},{insumo:"CAJA",presentacion:"750 ML CANADA",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"1000 ML",tipo:"REPOSADO"},{insumo:"CAJA",presentacion:"1000 ML",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"1.750 ML",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"1.750 ML",tipo:"REPOSADO"},{insumo:"TARIMA CHEP",presentacion:"ESTÁNDAR MADERA",tipo:"GENERAL"},{insumo:"TARIMA",presentacion:"ESTÁNDAR MADERA CON POLIN",tipo:"GENERAL"},{insumo:"TAPON PLASTICO",presentacion:"ESTÁNDAR",tipo:"GENERAL"},{insumo:"CORCHO CASA NOBLE",presentacion:"ESTÁNDAR",tipo:"GENERAL"},{insumo:"CELOSIL",presentacion:"ESTÁNDAR",tipo:"GENERAL"},{insumo:"ESQUINEROS",presentacion:"KRAFT 2X2",tipo:"GENERAL"},{insumo:"ROLLOS PLAYO CHICO",presentacion:"18\"",tipo:"GENERAL"},{insumo:"ROLLOS PLAYO GRANDE",presentacion:"20\"",tipo:"GENERAL"},{insumo:"ROLLOS CINTA",presentacion:"48 X 150",tipo:"GENERAL"},{insumo:"ROLLOS FLEJE",presentacion:"1/2 negro",tipo:"GENERAL"},{insumo:"GRAPAS PZ",presentacion:"50ml",tipo:"GENERAL"},{insumo:"ETIQUETA FRENTE",presentacion:"375 ML",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"700 ML",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"750 ML",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"750 ML CANADA",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"1000 ML",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"1750 ML",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"375 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA FRENTE",presentacion:"700 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA FRENTE",presentacion:"750 ML CANADA",tipo:"REPOSADO"},{insumo:"ETIQUETA FRENTE",presentacion:"750 ML USA",tipo:"REPOSADO"},{insumo:"ETIQUETA FRENTE",presentacion:"1000 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA FRENTE",presentacion:"1750 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"375 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"700 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"750 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"750 ML CANADA",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"1000 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"1750 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"375 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"700 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"750 ML CANADA",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"750 ML USA",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"1000 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"1750 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CUELLO",presentacion:"375 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CUELLO",presentacion:"750/700/1000 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CUELLO",presentacion:"1750 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CUELLO",presentacion:"375 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CUELLO",presentacion:"750/700/1000 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CUELLO",presentacion:"1750 ML",tipo:"REPOSADO"}];
+const INSUMOS_PELIGROSO=[{insumo:"BOTELLA",presentacion:"50 ml",tipo:"GENERAL"},{insumo:"BOTELLA",presentacion:"375ml",tipo:"GENERAL"},{insumo:"BOTELLA",presentacion:"750 ml",tipo:"GENERAL"},{insumo:"BOTELLA",presentacion:"1000 ml",tipo:"GENERAL"},{insumo:"CAJA",presentacion:"50 ML",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"50 ML",tipo:"REPOSADO"},{insumo:"CAJA",presentacion:"375 ML",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"375 ML",tipo:"REPOSADO"},{insumo:"CAJA",presentacion:"750 ML",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"750 ML",tipo:"REPOSADO"},{insumo:"CAJA",presentacion:"1000 ML",tipo:"BLANCO"},{insumo:"CAJA",presentacion:"1000 ML",tipo:"REPOSADO"},{insumo:"TARIMA",presentacion:"ESTÁNDAR MADERA CON POLIN",tipo:"GENERAL"},{insumo:"TAPON PLASTICO",presentacion:"ESTÁNDAR",tipo:"GENERAL"},{insumo:"CELOSIL",presentacion:"ESTÁNDAR",tipo:"GENERAL"},{insumo:"ESQUINEROS",presentacion:"KRAFT 2X2",tipo:"GENERAL"},{insumo:"ROLLOS PLAYO CHICO",presentacion:"18\"",tipo:"GENERAL"},{insumo:"ROLLOS PLAYO GRANDE",presentacion:"20\"",tipo:"GENERAL"},{insumo:"ROLLOS CINTA",presentacion:"48 X 150",tipo:"GENERAL"},{insumo:"ROLLOS FLEJE",presentacion:"1/2 negro",tipo:"GENERAL"},{insumo:"GRAPAS PZ",presentacion:"50ml",tipo:"GENERAL"},{insumo:"ETIQUETA FRENTE",presentacion:"50 ML",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"375 ML",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"750 ML",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"1000 ML",tipo:"BLANCO"},{insumo:"ETIQUETA FRENTE",presentacion:"50 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA FRENTE",presentacion:"375 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA FRENTE",presentacion:"750 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA FRENTE",presentacion:"1000 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"50 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"375 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"750 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"1000 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CONTRA",presentacion:"50 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"375 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"750 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CONTRA",presentacion:"1000 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CUELLO",presentacion:"50 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CUELLO",presentacion:"375 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CUELLO",presentacion:"750/1000 ML",tipo:"BLANCO"},{insumo:"ETIQUETA CUELLO",presentacion:"50 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CUELLO",presentacion:"375 ML",tipo:"REPOSADO"},{insumo:"ETIQUETA CUELLO",presentacion:"750/1000 ML",tipo:"REPOSADO"}];
+
+firebase.initializeApp({apiKey:"AIzaSyAg-1IW4aE5KXUH4X_VN87NEquGA03972Q",authDomain:"cdr-insumos-2619a.firebaseapp.com",databaseURL:"https://cdr-insumos-2619a-default-rtdb.firebaseio.com",projectId:"cdr-insumos-2619a",storageBucket:"cdr-insumos-2619a.firebasestorage.app",messagingSenderId:"921324842813",appId:"1:921324842813:web:c28cdf61c97cb43c9adf54"});
+const database=firebase.database();
+
+let solicitudes=[],recepciones=[],exportaciones=[],filtroActual='all',currentClient='MI_CAMPO',currentInsumos=INSUMOS_MI_CAMPO;
+
+database.ref('requests').on('value',s=>{solicitudes=s.val()?Object.values(s.val()):[];mostrarSolicitudes();});
+database.ref('recepciones').on('value',s=>{recepciones=s.val()?Object.values(s.val()):[];});
+database.ref('exportaciones').on('value',s=>{exportaciones=s.val()?Object.values(s.val()):[];});
+
+function cargarInsumos(){
+    const s=document.getElementById('insumo');
+    s.innerHTML='<option value="">Selecciona...</option>';
+    currentInsumos.forEach((item,i)=>{
+        const o=document.createElement('option');
+        o.value=i;
+        o.textContent=item.insumo+' - '+item.presentacion+' - '+item.tipo;
+        s.appendChild(o);
+    });
+}
+
+function selectClient(c,e){
+    if(e){e.preventDefault();e.stopPropagation();}
+    currentClient=c;
+    currentInsumos=c==='MI_CAMPO'?INSUMOS_MI_CAMPO:INSUMOS_PELIGROSO;
+    document.querySelectorAll('.client-option').forEach(o=>o.classList.remove('active'));
+    if(e&&e.target){const opt=e.target.closest('.client-option');if(opt)opt.classList.add('active');}
+    cargarInsumos();
+}
+
+function mostrar(cual){
+    document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));
+    document.getElementById(cual+'Card').classList.add('active');
+    if(cual==='materialista')mostrarSolicitudes();
+}
+
+function crearRequisicion(){
+    const idx=document.getElementById('insumo').value;
+    const ins=currentInsumos[idx];
+    const id='REQ-'+Date.now();
+    database.ref('requests/'+id).set({
+        id:id,
+        cliente:currentClient,
+        insumo:ins.insumo+' - '+ins.presentacion+' - '+ins.tipo,
+        cantidad:parseInt(document.getElementById('cantidad').value),
+        solicitante:document.getElementById('solicitante').value,
+        notas:document.getElementById('notas').value,
+        fecha:new Date().toISOString(),
+        status:'pending',
+        parcialidades:[],
+        cantidadEntregadaTotal:0
+    }).then(()=>{
+        document.querySelector('#produccionCard form').reset();
+        cargarInsumos();
+        alert('✅ Requisición creada: '+id);
+    });
+}
+
+function filtrarSolicitudes(f){
+    filtroActual=f;
+    mostrarSolicitudes();
+}
+
+function mostrarSolicitudes(){
+    const lista=document.getElementById('listaSolicitudes');
+    let filtradas=solicitudes;
+    if(filtroActual!=='all')filtradas=solicitudes.filter(r=>r.status===filtroActual);
+    if(filtradas.length===0){lista.innerHTML='<p>No hay solicitudes</p>';return;}
+    
+    lista.innerHTML=filtradas.map(req=>{
+        const entregado=req.cantidadEntregadaTotal||0;
+        const faltante=req.cantidad-entregado;
+        const parcialidades=req.parcialidades||[];
+        let estadoTexto='Pendiente';
+        if(req.status==='approved')estadoTexto='Aprobada';
+        else if(req.status==='partial')estadoTexto='Parcial';
+        else if(req.status==='delivered')estadoTexto='Entregada';
+        
+        return `
+            <div class="request-item">
+                <h3>${req.id}</h3>
+                <p><strong>Cliente:</strong> ${req.cliente}</p>
+                <p><strong>Insumo:</strong> ${req.insumo}</p>
+                <p><strong>Cantidad Solicitada:</strong> ${req.cantidad}</p>
+                <p><strong>Cantidad Entregada:</strong> ${entregado}</p>
+                ${faltante>0?`<p class="faltante">⚠️ <strong>Faltante:</strong> ${faltante}</p>`:''}
+                <p><strong>Solicitante:</strong> ${req.solicitante}</p>
+                <p><strong>Estado:</strong> <span class="status-${req.status}">${estadoTexto}</span></p>
+                
+                ${parcialidades.length>0?`
+                    <div style="margin-top:10px">
+                        <strong>📦 Parcialidades (${parcialidades.length}):</strong>
+                        ${parcialidades.map((p,i)=>`
+                            <div class="parcialidad-item">
+                                #${i+1}: <strong>${p.cantidad}</strong> unidades - ${p.receptor} (${new Date(p.fecha).toLocaleDateString('es-MX')})
+                            </div>
+                        `).join('')}
+                    </div>
+                `:''}
+                
+                <div style="margin-top:15px">
+                    ${req.status==='pending'?`<button class="btn btn-approve" onclick="aprobar('${req.id}')">Aprobar</button>`:''}
+                    ${req.status==='approved'||req.status==='partial'?`
+                        <button class="btn btn-deliver" onclick="entregarCompleto('${req.id}',${faltante})">Entregar Todo (${faltante})</button>
+                        <button class="btn btn-parcialidad" onclick="agregarParcialidad('${req.id}',${faltante})">Agregar Parcialidad</button>
+                    `:''}
+                </div>
+                
+                <button class="btn btn-eliminar" onclick="eliminarSolicitud('${req.id}')">🗑️ Eliminar Solicitud</button>
+            </div>
+        `;
+    }).join('');
+}
+
+function aprobar(id){
+    const materialista=prompt('Tu nombre (Materialista):');
+    if(!materialista)return;
+    database.ref('requests/'+id).update({status:'approved'}).then(()=>alert('✅ Aprobada'));
+}
+
+function entregarCompleto(id,faltante){
+    const confirmar=confirm(`¿Entregar TODO el faltante?\n\nCantidad: ${faltante} unidades`);
+    if(!confirmar)return;
+    
+    const receptor=prompt('¿Quién recibe?');
+    if(!receptor)return;
+    const req=solicitudes.find(r=>r.id===id);
+    const p=req.parcialidades||[];
+    p.push({cantidad:faltante,receptor:receptor,fecha:new Date().toISOString()});
+    database.ref('requests/'+id).update({
+        status:'delivered',
+        parcialidades:p,
+        cantidadEntregadaTotal:req.cantidad
+    }).then(()=>alert('✅ Entrega completa'));
+}
+
+function agregarParcialidad(id,faltante){
+    const cantidad=parseInt(prompt(`Cantidad a entregar (Faltante: ${faltante}):`));
+    if(!cantidad||cantidad<=0){alert('Cantidad inválida');return;}
+    
+    // VALIDACIÓN: Si entrega más de lo que falta
+    if(cantidad>faltante){
+        const confirmar=confirm(`⚠️ ATENCIÓN\n\nEstás entregando MÁS de lo solicitado:\n\n• Faltante: ${faltante}\n• Quieres entregar: ${cantidad}\n• Sobra: ${cantidad-faltante}\n\n¿Estás seguro de continuar?`);
+        if(!confirmar)return;
+    }
+    
+    const receptor=prompt('¿Quién recibe?');
+    if(!receptor)return;
+    const req=solicitudes.find(r=>r.id===id);
+    const p=req.parcialidades||[];
+    const total=(req.cantidadEntregadaTotal||0)+cantidad;
+    p.push({cantidad:cantidad,receptor:receptor,fecha:new Date().toISOString()});
+    const status=total>=req.cantidad?'delivered':'partial';
+    database.ref('requests/'+id).update({
+        status:status,
+        parcialidades:p,
+        cantidadEntregadaTotal:total
+    }).then(()=>alert(`✅ Parcialidad: ${cantidad} unidades`));
+}
+
+function eliminarSolicitud(id){
+    if(confirm('¿Seguro que quieres eliminar esta solicitud?\n\nID: '+id+'\n\nEsta acción no se puede deshacer.')){
+        database.ref('requests/'+id).remove()
+            .then(()=>alert('✅ Solicitud eliminada'))
+            .catch(()=>alert('❌ Error al eliminar'));
+    }
+}
+
+function registrarRecepcion(){
+    const id='REC-'+Date.now();
+    database.ref('recepciones/'+id).set({
+        id:id,
+        factura:document.getElementById('factura').value,
+        proveedor:document.getElementById('proveedor').value,
+        insumo:document.getElementById('insumoRecep').value,
+        cantidad:parseInt(document.getElementById('cantidadRecep').value),
+        responsable:document.getElementById('responsableRecep').value,
+        fecha:new Date().toISOString()
+    }).then(()=>{
+        document.querySelector('#almacenCard form').reset();
+        alert('✅ Recepción registrada');
+    });
+}
+
+function registrarExportacion(){
+    const id='EXP-'+Date.now();
+    database.ref('exportaciones/'+id).set({
+        id:id,
+        pedido:document.getElementById('pedido').value,
+        presentacion:document.getElementById('presentacion').value,
+        tipo:document.getElementById('tipo').value,
+        cliente:document.getElementById('clienteExp').value,
+        transporte:document.getElementById('transporte').value,
+        responsable:document.getElementById('responsableExp').value,
+        fecha:new Date().toISOString()
+    }).then(()=>{
+        document.querySelector('#exportacionesCard form').reset();
+        alert('✅ Exportación registrada');
+    });
+}
+
+function descargarExcel(){
+    const wb=XLSX.utils.book_new();
+    if(solicitudes.length>0){
+        const d1=solicitudes.map(r=>({
+            'ID':r.id,
+            'Cliente':r.cliente,
+            'Insumo':r.insumo,
+            'Cant.Solicitada':r.cantidad,
+            'Cant.Entregada':r.cantidadEntregadaTotal||0,
+            'Faltante':r.cantidad-(r.cantidadEntregadaTotal||0),
+            'Parcialidades':r.parcialidades?r.parcialidades.length:0,
+            'Solicitante':r.solicitante,
+            'Fecha':new Date(r.fecha).toLocaleString('es-MX'),
+            'Estado':r.status==='pending'?'Pendiente':r.status==='approved'?'Aprobada':r.status==='partial'?'Parcial':'Entregada'
+        }));
+        XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(d1),'Requisiciones');
+    }
+    if(recepciones.length>0){
+        const d2=recepciones.map(r=>({
+            'ID':r.id,
+            'Factura':r.factura,
+            'Proveedor':r.proveedor,
+            'Insumo':r.insumo,
+            'Cantidad':r.cantidad,
+            'Responsable':r.responsable,
+            'Fecha':new Date(r.fecha).toLocaleString('es-MX')
+        }));
+        XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(d2),'Recepciones');
+    }
+    if(exportaciones.length>0){
+        const d3=exportaciones.map(e=>({
+            'ID':e.id,
+            'Pedido':e.pedido,
+            'Presentación':e.presentacion,
+            'Tipo':e.tipo,
+            'Cliente':e.cliente,
+            'Transporte':e.transporte,
+            'Responsable':e.responsable,
+            'Fecha':new Date(e.fecha).toLocaleString('es-MX')
+        }));
+        XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(d3),'Exportaciones');
+    }
+    XLSX.writeFile(wb,'Reporte_'+new Date().toISOString().split('T')[0]+'.xlsx');
+}
+
+mostrar('produccion');
+cargarInsumos();
+    </script>
+</body>
+</html>
